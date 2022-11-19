@@ -1,11 +1,15 @@
 variable "region" {
-  variable "main_vpc_cidr" {
+  default = "us-west-2"
+}
 
-  }
-  variable "public_subnets" {
+variable "main_vpc_cidr" {
+     default = "0.0.0.0/16" 
+}
 
-  }
-  variable "private_subnets" {
-    
-  }
+variable "public_subnet" {
+    default = "0.0.0.0/24"
+}
+
+variable "private_subnet" {
+    default = "0.0.0.0/16"
 }

@@ -48,3 +48,7 @@ resource "aws_nat_gateway" "buzser_nat" {
    allocation_id = aws_eip.buzser_eip.id
    subnet_id = aws_subnet.public_subnet.id
 }
+
+resource "aws_db_subnet_group" "db_subnet_group" {
+    subnet_ids  = [aws_subnet.pub_subnet.id]
+}

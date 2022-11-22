@@ -38,7 +38,7 @@ resource "aws_s3_bucket_public_access_block" "public_access" {
 
 resource "aws_dynamodb_table" "terraform_locks" {
   name         = "buzser-state-lock"
-  billing_mode = "PAY_PER_REQUEST"
+  billing_mode = "PROVISIONED"
   hash_key     = "LockID"
 
   attribute {

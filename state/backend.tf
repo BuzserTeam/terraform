@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "terraform_state" {
-  bucket = "buzser-state"
+  bucket = "buzser-dev-state"
  
   # Prevent accidental deletion of this S3 bucket
   lifecycle {
@@ -37,7 +37,7 @@ resource "aws_s3_bucket_public_access_block" "public_access" {
 }
 
 resource "aws_dynamodb_table" "terraform_locks" {
-  name         = "buzser-state-lock"
+  name         = "buzser-dev-state-lock"
   billing_mode = "PROVISIONED"
   hash_key     = "LockID"
 

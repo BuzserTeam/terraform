@@ -1,43 +1,19 @@
-resource "aws_dynamodb_table" "basic-dynamodb-table" {
-  name           = "Wailist"
-  billing_mode   = "PROVISIONED"
-  read_capacity  = 20
-  write_capacity = 20
-  hash_key       = "UserId"
-  range_key      = "Waitlist"
+# terraform-modules/dynamodb/main.tf
+resource "aws_dynamodb_table" "this" {
+  name           = var.table_name
+  billing_mode   = var.billing_mode
+  hash_key       = var.hash_key
+  range_key      = var.range_key
 
   attribute {
-    name = "UserId"
-    type = "S"
-  }
-
-  attribute {
-    name = "Waitlist"
-    type = "S"
+    name = var.hash_key
+    type = var.hash_key_type
   }
 
   attribute {
-    name = "Waitlist"
-    type = "N"
+    name = var.range_key
+    type = var.range_key_type
   }
 
-  ttl {
-    attribute_name = "TimeToExist"
-    enabled        = false
-  }
-
-  global_secondary_index {
-    name               = "WaitlistIndex"
-    hash_key           = "Waitlist"
-    range_key          = "Waitlist"
-    write_capacity     = 10
-    read_capacity      = 10
-    projection_type    = "INCLUDE"
-    non_key_attributes = ["UserId"]
-  }
-
-  tags = {
-    Name        = "buzser-waitlist"
-    Environment = "development"
-  }
+  tags = var.tags
 }

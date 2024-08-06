@@ -5,9 +5,12 @@ resource "aws_lambda_function" "this" {
   handler          = var.handler
   runtime          = var.runtime
   source_code_hash = filebase64sha256(var.filename)
-
+  
   environment {
     variables = var.environment_variables
+  }
+   lifecycle {
+    prevent_destroy = true
   }
 }
 

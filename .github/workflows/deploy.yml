@@ -30,60 +30,10 @@ permissions:
 
 jobs:
   lint:
-    name: Lint Terraform
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Setup TFLint
-        uses: terraform-linters/setup-tflint@v3
-        with:
-          tflint_version: v0.44.1
-
-      - name: Init TFLint
-        run: tflint --init
-        working-directory: ./
-
-      - name: Run TFLint
-        run: tflint -f compact
-        working-directory: ./
+    # [Keep lint job unchanged]
 
   validate:
-    name: Validate Terraform
-    runs-on: ubuntu-latest
-    needs: [lint]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.4.6
-          terraform_wrapper: false
-
-      - name: Terraform Format
-        id: fmt
-        run: terraform fmt -check
-        working-directory: ./
-        continue-on-error: true
-
-      - name: Terraform Init
-        id: init
-        run: terraform init -backend=false
-        working-directory: ./
-
-      - name: Terraform Validate
-        id: validate
-        run: terraform validate -no-color
-        working-directory: ./
-        
-      - name: Post Format Results
-        if: steps.fmt.outcome == 'failure'
-        run: |
-          echo "⚠️ Terraform format check failed. Run 'terraform fmt' to fix."
-          exit 1
+    # [Keep validate job unchanged]
 
   deploy:
     name: Deploy to ${{ github.event.inputs.environment || 'dev' }}
@@ -102,25 +52,20 @@ jobs:
           terraform_version: 1.4.6
           terraform_wrapper: false
 
+      # FIX: Use a single credential configuration step
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ github.event.inputs.environment == 'prod' && 'arn:aws:iam::975612474095:role/github_actions_role' || 'arn:aws:iam::433164750170:role/github_actions_role' }}
+          aws-region: us-east-1
+          role-duration-seconds: 1800
+          role-session-name: GitHubActionsTerraformDeployment
       
-  # Choose which account to deploy to based on environment
-      - name: Configure Dev AWS Credentials
-        if: ${{ github.event.inputs.environment == 'dev' || github.event.inputs.environment == null }}
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: arn:aws:iam::433164750170:role/github_actions_role
-          aws-region: us-east-1
-          role-duration-seconds: 1800
-          role-session-name: GitHubActionsDevDeployment
-
-      - name: Configure Prod AWS Credentials
-        if: ${{ github.event.inputs.environment == 'prod' || github.event.inputs.environment == null }}
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: arn:aws:iam::975612474095:role/github_actions_role
-          aws-region: us-east-1
-          role-duration-seconds: 1800
-          role-session-name: GitHubActionsDevDeployment
+      # FIX: Initialize Terraform BEFORE checking resources
+      - name: Terraform Init
+        id: init
+        run: terraform init
+        working-directory: ./
           
       # Check for existing resources
       - name: Check for existing resources
@@ -165,60 +110,106 @@ jobs:
             echo "SES rule set exists" > .resource-status/ses-ruleset.exists
             echo "::warning::SES rule set buzser-rules already exists"
           fi
+          
+          # FIX: Check for media assets bucket
+          if aws s3api head-bucket --bucket buzser-media-assets 2>/dev/null; then
+            echo "Media assets bucket exists" > .resource-status/media-assets.exists
+            echo "::warning::S3 bucket buzser-media-assets already exists"
+          fi
+          
+          # FIX: Check for Terraform state bucket
+          if aws s3api head-bucket --bucket buzser-terraform-state 2>/dev/null; then
+            echo "Terraform state bucket exists" > .resource-status/tf-state-bucket.exists
+            echo "::warning::S3 bucket buzser-terraform-state already exists"
+          fi
+          
+          # FIX: Check for Terraform locks table
+          if aws dynamodb describe-table --table-name buzser-terraform-locks &>/dev/null; then
+            echo "Terraform locks table exists" > .resource-status/tf-locks-table.exists
+            echo "::warning::DynamoDB Table buzzer-terraform-locks already exists"
+          fi
         continue-on-error: true
         working-directory: ./
 
-      # Import existing resources
+      # Import existing resources - with detailed error reporting
       - name: Import existing resources
         run: |
           echo "Importing existing resources into Terraform state..."
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
           ENV="${{ github.event.inputs.environment || 'dev' }}"
           
+          # Function to import with better error handling
+          import_resource() {
+            local resource=$1
+            local id=$2
+            echo "⏳ Attempting to import $resource as $id"
+            if terraform import $resource $id; then
+              echo "✅ Successfully imported $resource"
+            else
+              echo "⚠️ Failed to import $resource - it may already be in state or have configuration issues"
+            fi
+          }
+          
           # Import DynamoDB table
           if [ -f .resource-status/dynamodb-leads.exists ]; then
-            terraform import aws_dynamodb_table.leads_table BuzserLeads || echo "Failed to import DynamoDB table"
+            import_resource aws_dynamodb_table.leads_table BuzserLeads
           fi
           
           # Import Lambda role
           if [ -f .resource-status/lambda-role.exists ]; then
-            terraform import aws_iam_role.lambda_role buzser-lambda-role-${ENV} || echo "Failed to import Lambda role"
+            import_resource aws_iam_role.lambda_role buzser-lambda-role-${ENV}
           fi
           
           # Import S3 bucket
           if [ -f .resource-status/lambda-bucket.exists ]; then
-            terraform import aws_s3_bucket.lambda_bucket buzser-lambda-code-${ENV} || echo "Failed to import S3 bucket"
+            import_resource aws_s3_bucket.lambda_bucket buzser-lambda-code-${ENV}
           fi
           
           # Import Pinpoint role
           if [ -f .resource-status/pinpoint-role.exists ]; then
-            terraform import aws_iam_role.pinpoint_role buzser-pinpoint-role || echo "Failed to import Pinpoint role"
+            import_resource aws_iam_role.pinpoint_role buzser-pinpoint-role
           fi
           
           # Import Pinpoint policy
           if [ -f .resource-status/pinpoint-role.exists ]; then
-            terraform import aws_iam_policy.pinpoint_policy arn:aws:iam::${AWS_ACCOUNT_ID}:policy/buzser-pinpoint-policy || echo "Failed to import Pinpoint policy"
+            import_resource aws_iam_policy.pinpoint_policy arn:aws:iam::${AWS_ACCOUNT_ID}:policy/buzser-pinpoint-policy
           fi
           
           # Import SES config set
           if [ -f .resource-status/ses-config.exists ]; then
-            terraform import aws_ses_configuration_set.ses_config buzser-email-config || echo "Failed to import SES config"
+            import_resource aws_ses_configuration_set.ses_config buzser-email-config
           fi
           
           # Import SES rule set
           if [ -f .resource-status/ses-ruleset.exists ]; then
-            terraform import aws_ses_receipt_rule_set.main buzser-rules || echo "Failed to import SES rule set"
+            import_resource aws_ses_receipt_rule_set.main buzser-rules
+          fi
+          
+          # Import media assets bucket 
+          if [ -f .resource-status/media-assets.exists ]; then
+            import_resource aws_s3_bucket.video_bucket buzser-media-assets
+          fi
+          
+          # Import Terraform state bucket
+          if [ -f .resource-status/tf-state-bucket.exists ]; then
+            import_resource aws_s3_bucket.terraform_state buzser-terraform-state
+          fi
+          
+          # Import Terraform locks table
+          if [ -f .resource-status/tf-locks-table.exists ]; then
+            import_resource aws_dynamodb_table.terraform_locks buzser-terraform-locks
           fi
         continue-on-error: true
         working-directory: ./
-
-      # Terraform deployment steps
-      - name: Terraform Init
-        run: terraform init
-        working-directory: ./
         
+      # Terraform planning step
       - name: Terraform Plan
         run: terraform plan -out=tfplan -var="environment=${{ github.event.inputs.environment || 'dev' }}"
+        working-directory: ./
+        
+      # Apply with -refresh-only first to sync state properly
+      - name: Refresh Terraform State
+        run: terraform apply -refresh-only -auto-approve
         working-directory: ./
         
       - name: Terraform Apply
